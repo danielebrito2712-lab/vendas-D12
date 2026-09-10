@@ -1,0 +1,12 @@
+{
+  "name": "Vendas D12",
+  "short_name": "D12",
+  "description": "Controle de clientes, visitas, vendas e notas fiscais da D12.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0b0b",
+  "theme_color": "#f24a1d",
+  "icons": [
+    {"src":"./logo-d12.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}
