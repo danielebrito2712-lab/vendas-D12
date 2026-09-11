@@ -29,7 +29,7 @@ function App(){
  const [online,setOnline]=useState(()=>navigator.onLine);
  const [municipios,setMunicipios]=useState(null);
 useEffect(()=>{
-  fetch(${import.meta.env.BASE_URL}municipios-parana.geojson)
+  fetch('${import.meta.env.BASE_URL}municipios-parana.geojson')
     .then(r=>r.json())
     .then(setMunicipios)
     .catch(e=>console.error('Erro ao carregar municípios:',e));
