@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import { createRoot } from 'react-dom/client';
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Popup, TileLayer, GeoJSON, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPinned, Trophy, Plus, Store, FileText, Copy, Navigation, CheckCircle2, Circle, ArrowLeft, Trash2, Settings, Search, X, Camera, Home } from 'lucide-react';
@@ -27,6 +27,13 @@ function App(){
  const [installPrompt,setInstallPrompt]=useState(null);
  const [toast,setToast]=useState('');
  const [online,setOnline]=useState(()=>navigator.onLine);
+ const [municipios,setMunicipios]=useState(null);
+useEffect(()=>{
+  fetch(${import.meta.env.BASE_URL}municipios-parana.geojson)
+    .then(r=>r.json())
+    .then(setMunicipios)
+    .catch(e=>console.error('Erro ao carregar municípios:',e));
+},[]);
  useEffect(()=>localStorage.setItem(STORAGE,JSON.stringify(data)),[data]);
  useEffect(()=>{const h=e=>{e.preventDefault();setInstallPrompt(e)};window.addEventListener('beforeinstallprompt',h); if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{}); return()=>window.removeEventListener('beforeinstallprompt',h)},[]);
  useEffect(()=>{const on=()=>setOnline(true),off=()=>setOnline(false);window.addEventListener('online',on);window.addEventListener('offline',off);return()=>{window.removeEventListener('online',on);window.removeEventListener('offline',off)}},[]);
