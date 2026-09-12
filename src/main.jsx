@@ -64,7 +64,27 @@ useEffect(()=>{
       <div className="map-toolbar"><div><b>{selectedCity||'Paraná'}</b><small>{selectedCity?'Mercados da cidade':'Toque numa cidade para abrir'}</small></div>{selectedCity&&<button onClick={()=>setSelectedCity(null)}><ArrowLeft size={18}/> Paraná</button>}</div>
       <MapContainer center={mapCenter} zoom={selectedCity?13:7} className="map">
         <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-       {municipios && <GeoJSON data={municipios} />}
+      {municipios && (
+  <GeoJSON
+    data={municipios}
+    style={() => ({
+      color: "#f2a41d",
+      weight: 2,
+      fillOpacity: 0.08
+    })}
+    onEachFeature={(feature, layer) => {
+      const nome =
+        feature.properties?.NM_MUN ||
+        feature.properties?.nome ||
+        feature.properties?.name;
+
+      if (nome) {
+        layer.bindTooltip(nome);
+        layer.on("click", () => setSelectedCity(nome));
+      }
+    }}
+  />
+)}
         <Fly center={mapCenter} zoom={selectedCity?13:7}/>
         {!selectedCity && cityGroups.map(c=><Marker key={c.city} position={[c.lat,c.lng]} icon={pin(false)} eventHandlers={{click:()=>setSelectedCity(c.city)}}><Popup><b>{c.city}</b><br/>{c.count} mercado(s)</Popup></Marker>)}
         {selectedCity && cityMarkets.map(m=><Marker key={m.id} position={[m.lat,m.lng]} icon={pin(data.visits[m.id]===today)} eventHandlers={{click:()=>setSelectedMarket(m.id)}}><Popup><b>{m.name}</b><br/>{data.visits[m.id]===today?'Visitado hoje':'Não visitado hoje'}</Popup></Marker>)}
