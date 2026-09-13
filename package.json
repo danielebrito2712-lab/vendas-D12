@@ -1,7 +1,7 @@
 {
   "name": "vendas-d12",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -9,14 +9,13 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "lucide-react": "latest",
-    "leaflet": "latest",
-    "react-leaflet": "latest"
+    "leaflet": "1.9.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-leaflet": "5.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.2.2"
+  }
 }

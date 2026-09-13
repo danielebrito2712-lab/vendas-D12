@@ -15,14 +15,14 @@ const products=[
 const id=()=>crypto.randomUUID();
 const today=()=>{
  const d=new Date();
-return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
 const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const date=s=>s?s.split('-').reverse().join('/'):'Sem venda';
 const last=(m,s)=>s.filter(x=>x.marketId===m.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
 const color=(m,s)=>m.active===false?'#e8bc32':last(m,s)&&Math.round((new Date(today()+'T12:00:00')-new Date(last(m,s).date+'T12:00:00'))/86400000)<=30?'#24b96f':'#ed5555';
-const items=s=>s.qty500==null?(s.qty||0)+' unidades':products.map(([k,n])=>(s['qty'+k]||0)+' x '+n).join(' • ');
+const items=s=>s.qty500==null?`${s.qty||0} unidades`:products.map(([k,n])=>`${s['qty'+k]||0} × ${n}`).join(' • ');
 const wa=p=>{
  let n=String(p||'').replace(/\D/g,'');
  if(n.length===10||n.length===11)n='55'+n;
@@ -50,7 +50,11 @@ function Fit({geo}){
 async function photosDb(mode,action){
  const db=await new Promise((ok,no)=>{
   const r=indexedDB.open('vendas-d12-fotos',1);
-  r.onupgradeneeded=()=>r.result.createObjectStore('photos',{keyPath:'id'});
+  r.onupgradeneeded=()=>{
+   if(!r.result.objectStoreNames.contains('photos')){
+    r.result.createObjectStore('photos',{keyPath:'id'});
+   }
+  };
   r.onsuccess=()=>ok(r.result);
   r.onerror=()=>no(r.error);
  });
@@ -135,7 +139,10 @@ function App(){
 
   photosDb('readonly',s=>s.getAll()).then(p=>{
    if(alive){setPhotos(p);setReady(true)}
-  }).catch(()=>alert('Não foi possível abrir a galeria neste navegador.'));
+  }).catch(()=>{
+   if(alive)setReady(true);
+   alert('Não foi possível abrir a galeria neste navegador.');
+  });
 
   if('serviceWorker' in navigator){
    navigator.serviceWorker.register(import.meta.env.BASE_URL+'sw.js').catch(()=>{});
@@ -299,7 +306,7 @@ function App(){
  const fiscal=async()=>{
   try{
    await navigator.clipboard.writeText(
-    ${m.name}\nCNPJ: ${m.cnpj||''}\nInscrição Estadual: ${m.ie||''}\nEndereço: ${m.address||''}
+    `${m.name}\nCNPJ: ${m.cnpj||''}\nInscrição Estadual: ${m.ie||''}\nEndereço: ${m.address||''}`
    );
    alert('Dados copiados');
   }catch{
@@ -340,8 +347,8 @@ function App(){
     <h1>{m?m.name:'Vendas D12'}</h1>
     <small>{m?m.city:online?'Online':'Offline'}</small>
    </div>
-   {install&&<button onClick={async()=>{
-    await install.prompt();setInstall(null);
+   {install&&<button className="dinstall" onClick={async()=>{
+    try{await install.prompt();}finally{setInstall(null);}
    }}>Instalar</button>}
   </header>
 
@@ -362,8 +369,8 @@ function App(){
     </button>
     <button onClick={()=>setModal({
      kind:'invoice',initial:{saleId:sales[0]?.id||'',invoiceName:''}
-    })}>Arquivar nota</button>
-    <a href={https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}}
+    })} disabled={!sales.length}>Arquivar nota</button>
+    <a href={`https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}`}
      target="_blank" rel="noreferrer">Como chegar</a>
    </div>
 
@@ -403,7 +410,7 @@ function App(){
     })}>{m.active===false?'Ativar cliente':'Inativar cliente'}</button>
    </section>
 
-   <button onClick={()=>{
+   <button className="ddanger" onClick={()=>{
     if(confirm('Excluir este mercado e todas as suas vendas? As quantidades voltarão às cargas vinculadas.')){
      if(save({
       ...d,markets:d.markets.filter(x=>x.id!==m.id),
@@ -439,7 +446,7 @@ function App(){
        {markets.map(x=><Marker key={x.id} position={[x.lat,x.lng]}
         icon={L.divIcon({
          className:'',
-         html:<div style="background:${color(x,d.sales)};width:26px;height:26px;border:3px solid white;border-radius:50%;box-shadow:0 2px 5px #222"></div>,
+         html:`<div style="background:${color(x,d.sales)};width:26px;height:26px;border:3px solid white;border-radius:50%;box-shadow:0 2px 5px #222"></div>`,
          iconSize:[26,26],iconAnchor:[13,13]
         })}
         eventHandlers={{click:()=>setMarket(x.id)}}/>)}
@@ -474,7 +481,7 @@ function App(){
        ?'Não foi possível carregar o desenho. Confira a conexão ou use a lista abaixo.'
        :'Carregando desenho do Paraná…'}</p>}
      {Array.from(new Set(d.markets.map(x=>x.city))).sort().map(n=>
-      <button key={n} onClick={()=>openCity(n)}>{n}</button>
+      <button className="dcity" key={n} onClick={()=>openCity(n)}>{n}</button>
      )}
     </>}
    </>}
@@ -551,7 +558,7 @@ function App(){
    {tab==='photos'&&<>
     <h2>Fotos dos produtos — {photos.length}/10</h2>
     <p>Toque na imagem para mostrar ao cliente. As fotos ficam neste aparelho, disponíveis offline.</p>
-    <label>Adicionar fotos
+    <label className="dupload">Adicionar fotos
      <input disabled={!ready||busy||photos.length>=10}
       type="file" accept="image/*" multiple
       onChange={e=>{addPhotos(e.target.files);e.target.value=''}}/>
@@ -559,7 +566,7 @@ function App(){
     {busy&&<p>Salvando fotos…</p>}
     <div className="dgrid">
      {photos.map(p=>
-      <button key={p.id} onClick={()=>setViewer(p)}>
+      <button className="dphotoButton" key={p.id} onClick={()=>setViewer(p)}>
        <img className="dphoto" src={p.data} alt={p.name}/>
       </button>
      )}
@@ -581,7 +588,7 @@ function App(){
    modal={modal} onClose={()=>setModal(null)}
    onSave={submit} sales={sales}
    stockHint={trip&&m&&norm(trip.city)===norm(m.city)
-    ?'Carga ativa: '+products.map(([k,n])=>${left(trip,k)} ${n}).join(' • ')
+    ?'Carga ativa: '+products.map(([k,n])=>`${left(trip,k)} ${n}`).join(' • ')
     :'Sem carga ativa para esta cidade. A venda será registrada sem descontar estoque.'}/>}
 
   {viewer&&<div className="dviewer">
@@ -599,6 +606,7 @@ function Form({modal,onClose,onSave,sales,stockHint}){
  const input=(k,label,type='text')=>
   <label key={k}>{label}
    <input type={type} step={type==='number'?'any':undefined}
+    min={type==='number'&&k.startsWith('qty')?'0':undefined}
     value={f[k]??''} onChange={e=>set(k,e.target.value)}/>
   </label>;
  const kind=modal.kind;
@@ -616,8 +624,8 @@ function Form({modal,onClose,onSave,sales,stockHint}){
    setLocating(false);
   },()=>{
    setLocating(false);
-   alert('Não foi possível obter sua localização.');
-  },{timeout:15000});
+   alert('Não foi possível obter sua localização. Verifique se a permissão de localização está liberada no navegador.');
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
  };
 
  return <div className="doverlay">
@@ -684,33 +692,41 @@ function Form({modal,onClose,onSave,sales,stockHint}){
 const css=`
 .d12{background:#101010;color:#eee;min-height:100vh;font:15px system-ui;padding-bottom:90px}
 .d12 *{box-sizing:border-box}
-.d12 header{display:flex;gap:12px;align-items:center;padding:12px;height:auto;min-height:70px}
-.d12 header img{width:48px}
+.d12 header{display:flex;gap:12px;align-items:center;padding:12px;min-height:70px;position:sticky;top:0;z-index:1001;background:#101010f2;border-bottom:1px solid #2d2d2d}
+.d12 header img{width:48px;height:48px;object-fit:contain}
+.d12 header>div{flex:1}
 .d12 h1{font-size:20px;margin:0}
 .d12 h2{font-size:20px}
 .d12 main{max-width:950px;margin:auto;padding:14px}
-.d12 button,.d12 a{cursor:pointer;color:#eee;background:#242424;border:1px solid #454545;border-radius:10px;padding:11px;text-decoration:none}
-.d12 button:disabled{opacity:.4}
+.d12 button,.d12 a{cursor:pointer;color:#eee;background:#242424;border:1px solid #454545;border-radius:10px;padding:11px;text-decoration:none;font:inherit}
+.d12 button:disabled{opacity:.4;cursor:not-allowed}
 .d12 input,.d12 select{width:100%;padding:12px;border:1px solid #555;border-radius:9px;background:#202020;color:#fff;font:inherit;margin:6px 0 12px}
 .d12 label{display:block}
 .d12 small{display:block;color:#bbb}
+.dinstall{margin-left:auto!important}
 .dcard{background:#181818;border:1px solid #393939;border-radius:14px;padding:13px;margin:12px 0}
 .drow{display:flex!important;width:100%;gap:12px;align-items:center;text-align:left}
 .drow>div{flex:1}
 .dwa{display:block;text-align:center;background:#143826!important;color:#7becad!important;margin-top:8px}
 .dactions,.dgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
 .dactions a{text-align:center}
-.dmap{height:55vh;min-height:330px;background:#141414;border-radius:12px;z-index:1}
+.dmap{height:55vh;min-height:330px;background:#141414;border-radius:12px;z-index:1;overflow:hidden}
 .dsale{border-top:1px solid #444;padding:12px 0}
 .dsale p{font-size:13px}
-.d12 nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:1000;height:72px;padding:4px}
+.dcity{margin:4px}
+.dupload{display:block;background:#242424;border:1px solid #454545;border-radius:10px;padding:11px;text-align:center;cursor:pointer}
+.dupload input{margin:10px 0 0}
+.dphotoButton{padding:0!important;overflow:hidden}
+.d12 nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:1000;height:72px;padding:4px;padding-bottom:max(4px,env(safe-area-inset-bottom))}
 .d12 nav button{flex:1;padding:3px;border:0;background:none;border-radius:0;font-size:11px;min-width:0}
 .doverlay{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:2000;padding:10px}
 .dmodal{background:#141414;width:100%;max-width:620px;max-height:92vh;overflow:auto;padding:18px;border:1px solid #555;border-radius:18px}
 .dsave{width:100%;background:#bb421b!important;margin-top:12px}
-.dphoto{width:100%;height:180px;object-fit:cover}
+.ddanger{background:#421b1b!important;border-color:#773535!important;color:#ffb0b0!important}
+.dphoto{display:block;width:100%;height:180px;object-fit:cover}
 .dviewer{position:fixed;inset:0;background:black;z-index:3000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;gap:12px}
 .dviewer img{max-height:78vh;max-width:100%;object-fit:contain}
+@media(max-width:520px){.d12 main{padding:10px}.dactions,.dgrid{grid-template-columns:1fr 1fr}.d12 nav button{font-size:10px}.dmap{height:52vh}}
 `;
 
 createRoot(document.getElementById('root')).render(<App/>);
