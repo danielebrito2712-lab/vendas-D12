@@ -1,115 +1,716 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
-import { createRoot } from 'react-dom/client';
-import { MapContainer, Marker, Popup, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import React,{useEffect,useRef,useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {MapContainer,GeoJSON,TileLayer,Marker,useMap} from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPinned, Trophy, Plus, Store, FileText, Copy, Navigation, CheckCircle2, Circle, ArrowLeft, Trash2, Settings, Search, X, Camera, Home } from 'lucide-react';
 import './styles.css';
 
-const orange='#f24a1d';
-const STORAGE='vendas-d12-data-v1';
-const seed={markets:[],sales:[],visits:{}};
-const money=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v||0));
-const dateBR=v=>v?new Date(v+'T12:00:00').toLocaleDateString('pt-BR'):'—';
-const daysSince=v=>{if(!v)return 9999; const a=new Date(v+'T12:00:00'),b=new Date(); return Math.floor((b-a)/86400000)};
-const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
+const KEY='vendas-d12-data-v1',GEO='vendas-d12-pr-municipios-v1';
+const products=[
+ ['1000','Pote de 1 kg'],
+ ['500','Pote de 500 g'],
+ ['200','Bisnaga de 200 g'],
+ ['Bear250','Bisnaga urso de 250 g']
+];
+const id=()=>crypto.randomUUID();
+const today=()=>{
+ const d=new Date();
+ return ${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')};
+};
+const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const date=s=>s?s.split('-').reverse().join('/'):'Sem venda';
+const last=(m,s)=>s.filter(x=>x.marketId===m.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+const color=(m,s)=>m.active===false?'#e8bc32':last(m,s)&&Math.round((new Date(today()+'T12:00:00')-new Date(last(m,s).date+'T12:00:00'))/86400000)<=30?'#24b96f':'#ed5555';
+const items=s=>s.qty500==null?${s.qty||0} unidades:products.map(([k,n])=>${s['qty'+k]||0} × ${n}).join(' • ');
+const wa=p=>{
+ let n=String(p||'').replace(/\D/g,'');
+ if(n.length===10||n.length===11)n='55'+n;
+ return /^55\d{10,11}$/.test(n)?'https://wa.me/'+n:null;
+};
+const cityName=f=>f.properties?.NM_MUN||f.properties?.nome||f.properties?.name||f.properties?.NM_MUNICIP||'';
 
-const pin=(visited=false)=>L.divIcon({className:'custom-pin',html:`<div class="pin ${visited?'visited':''}"><span></span></div>`,iconSize:[28,38],iconAnchor:[14,38]});
-function Fly({center,zoom}){const map=useMap();useEffect(()=>{map.flyTo(center,zoom,{duration:.6})},[center,zoom]);return null}
-
-function App(){
- const [data,setData]=useState(()=>{try{return JSON.parse(localStorage.getItem(STORAGE))||seed}catch{return seed}});
- const [tab,setTab]=useState('map');
- const [selectedCity,setSelectedCity]=useState(null);
- const [selectedMarket,setSelectedMarket]=useState(null);
- const [modal,setModal]=useState(null);
- const [query,setQuery]=useState('');
- const [installPrompt,setInstallPrompt]=useState(null);
- const [toast,setToast]=useState('');
- const [online,setOnline]=useState(()=>navigator.onLine);
- const [municipios,setMunicipios]=useState(null);
-useEffect(()=>{
-  fetch('${import.meta.env.BASE_URL}municipios-parana.geojson')
-    .then(r=>r.json())
-    .then(setMunicipios)
-    .catch(e=>console.error('Erro ao carregar municípios:',e));
-},[]);
- useEffect(()=>localStorage.setItem(STORAGE,JSON.stringify(data)),[data]);
- useEffect(()=>{const h=e=>{e.preventDefault();setInstallPrompt(e)};window.addEventListener('beforeinstallprompt',h); if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{}); return()=>window.removeEventListener('beforeinstallprompt',h)},[]);
- useEffect(()=>{const on=()=>setOnline(true),off=()=>setOnline(false);window.addEventListener('online',on);window.addEventListener('offline',off);return()=>{window.removeEventListener('online',on);window.removeEventListener('offline',off)}},[]);
- const flash=t=>{setToast(t);setTimeout(()=>setToast(''),1800)};
- const marketsFiltered=useMemo(()=>data.markets.filter(m=>!query||`${m.name} ${m.city}`.toLowerCase().includes(query.toLowerCase())),[data.markets,query]);
- const cityGroups=useMemo(()=>Object.values(data.markets.reduce((a,m)=>{a[m.city]??={city:m.city,lat:m.lat,lng:m.lng,count:0};a[m.city].count++;return a},{})),[data.markets]);
- const ranking=useMemo(()=>data.markets.map(m=>({m,total:data.sales.filter(s=>s.marketId===m.id).reduce((a,s)=>a+Number(s.total||0),0)})).sort((a,b)=>b.total-a.total).slice(0,10),[data]);
- const today=new Date().toISOString().slice(0,10);
- const addMarket=form=>{const m={id:uid(),name:form.name,city:form.city,lat:Number(form.lat),lng:Number(form.lng),cnpj:form.cnpj||'',ie:form.ie||'',address:form.address||'',phone:form.phone||''};setData(d=>({...d,markets:[...d.markets,m]}));setModal(null);flash('Mercado salvo');};
- const addSale=(marketId,form)=>{setData(d=>({...d,sales:[...d.sales,{id:uid(),marketId,date:form.date,qty:Number(form.qty||0),total:Number(form.total||0),invoiceName:form.invoiceName||''}]}));setModal(null);flash('Venda registrada');};
- const markVisit=id=>{setData(d=>({...d,visits:{...d.visits,[id]:today}}));flash('Visita de hoje marcada');};
- const removeMarket=id=>{if(!confirm('Excluir este mercado e seu histórico?'))return;setData(d=>({...d,markets:d.markets.filter(m=>m.id!==id),sales:d.sales.filter(s=>s.marketId!==id)}));setSelectedMarket(null);setSelectedCity(null)};
- const currentMarket=data.markets.find(m=>m.id===selectedMarket);
- const currentSales=currentMarket?data.sales.filter(s=>s.marketId===currentMarket.id).sort((a,b)=>b.date.localeCompare(a.date)):[];
- const lastSale=currentSales[0];
- const cityMarkets=selectedCity?data.markets.filter(m=>m.city===selectedCity):[];
- const mapCenter=selectedCity&&cityMarkets[0]?[cityMarkets[0].lat,cityMarkets[0].lng]:[-24.7,-51.6];
- const copyFiscal=async m=>{const text=`${m.name}\nCNPJ: ${m.cnpj}\nInscrição Estadual: ${m.ie}\nEndereço: ${m.address}`;await navigator.clipboard.writeText(text);flash('Dados copiados');};
- const useMyLocation=(setterLat,setterLng)=>navigator.geolocation?.getCurrentPosition(p=>{setterLat(p.coords.latitude.toFixed(6));setterLng(p.coords.longitude.toFixed(6));},()=>flash('Não foi possível obter a localização'));
-
- if(currentMarket) return <MarketPage m={currentMarket} sales={currentSales} lastSale={lastSale} visited={data.visits[currentMarket.id]===today} onBack={()=>setSelectedMarket(null)} onSale={()=>setModal({type:'sale',market:currentMarket})} onVisit={()=>markVisit(currentMarket.id)} onCopy={()=>copyFiscal(currentMarket)} onDelete={()=>removeMarket(currentMarket.id)} onInvoice={()=>setModal({type:'invoice',market:currentMarket})} />;
-
- return <div className="app">
-   <header><img src="./logo-d12.png"/><div><h1>Vendas D12</h1><small>Controle de vendas</small></div><span className={online?'net online':'net offline'}>{online?'Online':'Offline'}</span>{installPrompt&&<button className="install" onClick={async()=>{installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null)}}>Instalar</button>}</header>
-   {tab!=='map'&&<div className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar mercado ou cidade"/></div>}
-   <main>
-   {tab==='map' && <section className="map-screen">
-      <div className="map-toolbar"><div><b>{selectedCity||'Paraná'}</b><small>{selectedCity?'Mercados da cidade':'Toque numa cidade para abrir'}</small></div>{selectedCity&&<button onClick={()=>setSelectedCity(null)}><ArrowLeft size={18}/> Paraná</button>}</div>
-      <MapContainer center={mapCenter} zoom={selectedCity?13:7} className="map">
-        <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-      {municipios && (
-  <GeoJSON
-    data={municipios}
-    style={() => ({
-      color: "#f2a41d",
-      weight: 2,
-      fillOpacity: 0.08
-    })}
-    onEachFeature={(feature, layer) => {
-      const nome =
-        feature.properties?.NM_MUN ||
-        feature.properties?.nome ||
-        feature.properties?.name;
-
-      if (nome) {
-        layer.bindTooltip(nome);
-        layer.on("click", () => setSelectedCity(nome));
-      }
-    }}
-  />
-)}
-        <Fly center={mapCenter} zoom={selectedCity?13:7}/>
-        {!selectedCity && cityGroups.map(c=><Marker key={c.city} position={[c.lat,c.lng]} icon={pin(false)} eventHandlers={{click:()=>setSelectedCity(c.city)}}><Popup><b>{c.city}</b><br/>{c.count} mercado(s)</Popup></Marker>)}
-        {selectedCity && cityMarkets.map(m=><Marker key={m.id} position={[m.lat,m.lng]} icon={pin(data.visits[m.id]===today)} eventHandlers={{click:()=>setSelectedMarket(m.id)}}><Popup><b>{m.name}</b><br/>{data.visits[m.id]===today?'Visitado hoje':'Não visitado hoje'}</Popup></Marker>)}
-      </MapContainer>
-      {!data.markets.length&&<div className="empty-float"><Store/><b>Comece adicionando um mercado</b><span>Use o botão + abaixo.</span></div>}
-   </section>}
-   {tab==='clients' && <section className="panel"><h2>Clientes</h2>{marketsFiltered.length?marketsFiltered.map(m=>{const s=data.sales.filter(x=>x.marketId===m.id).sort((a,b)=>b.date.localeCompare(a.date))[0];return <button className="client-card" key={m.id} onClick={()=>setSelectedMarket(m.id)}><div className="avatar"><Store/></div><div><b>{m.name}</b><span>{m.city}</span><small className={daysSince(s?.date)>30?'late':'ok'}>{s?`Última venda: ${dateBR(s.date)}`:'Sem vendas'}</small></div><span>›</span></button>}):<Empty text="Nenhum cliente cadastrado"/>}</section>}
-   {tab==='rank' && <section className="panel"><h2>Top 10 clientes</h2>{ranking.length?ranking.map((r,i)=><button className="rank-card" key={r.m.id} onClick={()=>setSelectedMarket(r.m.id)}><strong>{i+1}º</strong><div><b>{r.m.name}</b><span>{r.m.city}</span></div><b>{money(r.total)}</b></button>):<Empty text="Registre vendas para montar o ranking"/>}</section>}
-   {tab==='notes' && <section className="panel"><h2>Notas fiscais</h2><p className="hint">As notas ficam vinculadas ao histórico de cada mercado.</p>{data.sales.filter(s=>s.invoiceName).sort((a,b)=>b.date.localeCompare(a.date)).map(s=>{const m=data.markets.find(x=>x.id===s.marketId);return <div className="invoice-row" key={s.id}><FileText/><div><b>{s.invoiceName}</b><span>{m?.name} • {dateBR(s.date)}</span></div></div>})}{!data.sales.some(s=>s.invoiceName)&&<Empty text="Nenhuma nota arquivada"/>}</section>}
-   </main>
-   <button className="fab" onClick={()=>setModal({type:'market'})}><Plus size={28}/></button>
-   <nav><NavBtn icon={<MapPinned/>} label="Mapa" active={tab==='map'} onClick={()=>{setTab('map');setSelectedCity(null)}}/><NavBtn icon={<Store/>} label="Clientes" active={tab==='clients'} onClick={()=>setTab('clients')}/><NavBtn icon={<Trophy/>} label="Ranking" active={tab==='rank'} onClick={()=>setTab('rank')}/><NavBtn icon={<FileText/>} label="Notas" active={tab==='notes'} onClick={()=>setTab('notes')}/></nav>
-   {modal?.type==='market'&&<MarketModal onClose={()=>setModal(null)} onSave={addMarket} onLocation={useMyLocation}/>} 
-   {modal?.type==='sale'&&<SaleModal market={modal.market} onClose={()=>setModal(null)} onSave={f=>addSale(modal.market.id,f)}/>} 
-   {modal?.type==='invoice'&&<InvoiceModal market={modal.market} onClose={()=>setModal(null)} sales={currentSales} onAttach={(saleId,name)=>{setData(d=>({...d,sales:d.sales.map(s=>s.id===saleId?{...s,invoiceName:name}:s)}));setModal(null);flash('Nota vinculada')}}/>}
-   {toast&&<div className="toast">{toast}</div>}
- </div>
+function load(){
+ try{
+  const d=JSON.parse(localStorage.getItem(KEY))||{};
+  return {...d,markets:d.markets||[],sales:d.sales||[],visits:d.visits||{},trips:d.trips||[]};
+ }catch{
+  return {markets:[],sales:[],visits:{},trips:[]};
+ }
 }
 
-function MarketPage({m,sales,lastSale,visited,onBack,onSale,onVisit,onCopy,onDelete,onInvoice}){return <div className="app detail"><header><button className="iconbtn" onClick={onBack}><ArrowLeft/></button><div><h1>{m.name}</h1><small>{m.city}</small></div></header><main className="panel market-detail"><div className={`status ${daysSince(lastSale?.date)>30?'latebg':'okbg'}`}><div><small>Última venda</small><b>{lastSale?dateBR(lastSale.date):'Ainda não há vendas'}</b></div><div><small>Quantidade</small><b>{lastSale?lastSale.qty:'—'}</b></div></div><div className="action-grid"><button onClick={onSale}><Plus/>Nova venda</button><button onClick={onVisit}>{visited?<CheckCircle2/>:<Circle/>}{visited?'Visitado hoje':'Marcar visita'}</button><button onClick={onInvoice}><FileText/>Arquivar nota</button><button onClick={()=>window.open(`https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}`,'_blank')}><Navigation/>Como chegar</button></div><section className="card"><div className="card-title"><h3>Dados para nota fiscal</h3><button onClick={onCopy}><Copy size={18}/> Copiar</button></div><Field k="CNPJ" v={m.cnpj}/><Field k="Inscrição Estadual" v={m.ie}/><Field k="Endereço" v={m.address}/><Field k="Telefone" v={m.phone}/></section><section className="card"><h3>Histórico de vendas</h3>{sales.length?sales.map(s=><div className="sale-row" key={s.id}><div><b>{dateBR(s.date)}</b><span>{s.qty} unidade(s){s.invoiceName?` • ${s.invoiceName}`:''}</span></div><strong>{money(s.total)}</strong></div>):<p className="hint">Nenhuma venda registrada.</p>}</section><button className="danger" onClick={onDelete}><Trash2 size={18}/> Excluir mercado</button></main></div>}
-function Field({k,v}){return <div className="field"><span>{k}</span><b>{v||'—'}</b></div>}
-function NavBtn({icon,label,active,onClick}){return <button className={active?'active':''} onClick={onClick}>{icon}<span>{label}</span></button>}
-function Empty({text}){return <div className="empty"><Store/><p>{text}</p></div>}
-function Modal({children,onClose,title}){return <div className="overlay"><div className="modal"><div className="modal-head"><h2>{title}</h2><button onClick={onClose}><X/></button></div>{children}</div></div>}
-function MarketModal({onClose,onSave,onLocation}){const [f,setF]=useState({name:'',city:'',lat:'',lng:'',cnpj:'',ie:'',address:'',phone:''});const s=(k,v)=>setF(x=>({...x,[k]:v}));return <Modal title="Novo mercado" onClose={onClose}><div className="form"><input placeholder="Nome do mercado" value={f.name} onChange={e=>s('name',e.target.value)}/><input placeholder="Cidade" value={f.city} onChange={e=>s('city',e.target.value)}/><div className="two"><input placeholder="Latitude" value={f.lat} onChange={e=>s('lat',e.target.value)}/><input placeholder="Longitude" value={f.lng} onChange={e=>s('lng',e.target.value)}/></div><button className="secondary" onClick={()=>onLocation(v=>s('lat',v),v=>s('lng',v))}><Navigation/> Usar localização atual</button><input placeholder="CNPJ" value={f.cnpj} onChange={e=>s('cnpj',e.target.value)}/><input placeholder="Inscrição Estadual" value={f.ie} onChange={e=>s('ie',e.target.value)}/><input placeholder="Endereço completo" value={f.address} onChange={e=>s('address',e.target.value)}/><input placeholder="Telefone" value={f.phone} onChange={e=>s('phone',e.target.value)}/><button className="primary" disabled={!f.name||!f.city||!f.lat||!f.lng} onClick={()=>onSave(f)}>Salvar mercado</button></div></Modal>}
-function SaleModal({market,onClose,onSave}){const [f,setF]=useState({date:new Date().toISOString().slice(0,10),qty:'',total:'',invoiceName:''});return <Modal title={`Nova venda • ${market.name}`} onClose={onClose}><div className="form"><label>Data<input type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}/></label><input inputMode="numeric" placeholder="Quantidade vendida" value={f.qty} onChange={e=>setF({...f,qty:e.target.value})}/><input inputMode="decimal" placeholder="Valor total (R$)" value={f.total} onChange={e=>setF({...f,total:e.target.value.replace(',','.')})}/><input placeholder="Nome da nota fiscal (opcional)" value={f.invoiceName} onChange={e=>setF({...f,invoiceName:e.target.value})}/><button className="primary" onClick={()=>onSave(f)}>Registrar venda</button></div></Modal>}
-function InvoiceModal({market,onClose,sales,onAttach}){const [saleId,setSaleId]=useState(sales[0]?.id||'');const [name,setName]=useState('');return <Modal title={`Arquivar nota • ${market.name}`} onClose={onClose}><div className="form"><select value={saleId} onChange={e=>setSaleId(e.target.value)}><option value="">Selecione a venda</option>{sales.map(s=><option key={s.id} value={s.id}>{dateBR(s.date)} — {money(s.total)}</option>)}</select><input placeholder="Nome/identificação da nota" value={name} onChange={e=>setName(e.target.value)}/><p className="hint">Nesta versão, o app guarda a identificação da nota no histórico. Para anexar o PDF diretamente no aparelho, a próxima etapa é ativar o armazenamento de arquivos.</p><button className="primary" disabled={!saleId||!name} onClick={()=>onAttach(saleId,name)}>Vincular nota</button></div></Modal>}
+function Fit({geo}){
+ const map=useMap();
+ useEffect(()=>{
+  map.fitBounds(L.geoJSON(geo).getBounds(),{padding:[8,8]});
+ },[map,geo]);
+ return null;
+}
+
+async function photosDb(mode,action){
+ const db=await new Promise((ok,no)=>{
+  const r=indexedDB.open('vendas-d12-fotos',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('photos',{keyPath:'id'});
+  r.onsuccess=()=>ok(r.result);
+  r.onerror=()=>no(r.error);
+ });
+ return new Promise((ok,no)=>{
+  const t=db.transaction('photos',mode);
+  const r=action(t.objectStore('photos'));
+  t.oncomplete=()=>{db.close();ok(r.result)};
+  t.onabort=t.onerror=()=>{db.close();no(t.error)};
+ });
+}
+
+async function compress(file){
+ const image=await createImageBitmap(file);
+ try{
+  const c=document.createElement('canvas');
+  const scale=Math.min(1,1600/Math.max(image.width,image.height));
+  c.width=Math.round(image.width*scale);
+  c.height=Math.round(image.height*scale);
+  c.getContext('2d').drawImage(image,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',.85);
+ }finally{
+  image.close();
+ }
+}
+
+function App(){
+ const [d,setD]=useState(load);
+ const [tab,setTab]=useState('map');
+ const [city,setCity]=useState('');
+ const [center,setCenter]=useState([-24.7,-51.6]);
+ const [list,setList]=useState(false);
+ const [marketId,setMarket]=useState(null);
+ const [modal,setModal]=useState(null);
+ const [geo,setGeo]=useState(null);
+ const [geoError,setGeoError]=useState(false);
+ const [search,setSearch]=useState('');
+ const [photos,setPhotos]=useState([]);
+ const [viewer,setViewer]=useState(null);
+ const [busy,setBusy]=useState(false);
+ const [ready,setReady]=useState(false);
+ const [online,setOnline]=useState(navigator.onLine);
+ const [install,setInstall]=useState(null);
+ const photoLock=useRef(false);
+
+ const save=next=>{
+  try{
+   localStorage.setItem(KEY,JSON.stringify(next));
+   setD(next);
+   return true;
+  }catch{
+   alert('Não foi possível salvar. Confira o espaço livre do aparelho.');
+   return false;
+  }
+ };
+
+ useEffect(()=>{
+  let alive=true;
+  (async()=>{
+   try{
+    const cache=JSON.parse(localStorage.getItem(GEO));
+    if(cache){
+     if(alive)setGeo(cache);
+     return;
+    }
+   }catch{}
+   for(const url of [
+    import.meta.env.BASE_URL+'municipios-parana.geojson',
+    'https://raw.githubusercontent.com/tbrugz/geodata-br/master/geojson/geojs-41-mun.json'
+   ]){
+    try{
+     const r=await fetch(url);
+     if(!r.ok)throw Error();
+     const g=await r.json();
+     if(!g.features?.length)throw Error();
+     if(alive)setGeo(g);
+     try{localStorage.setItem(GEO,JSON.stringify(g))}catch{}
+     return;
+    }catch{}
+   }
+   if(alive)setGeoError(true);
+  })();
+
+  photosDb('readonly',s=>s.getAll()).then(p=>{
+   if(alive){setPhotos(p);setReady(true)}
+  }).catch(()=>alert('Não foi possível abrir a galeria neste navegador.'));
+
+  if('serviceWorker' in navigator){
+   navigator.serviceWorker.register(import.meta.env.BASE_URL+'sw.js').catch(()=>{});
+  }
+
+  const net=()=>setOnline(navigator.onLine);
+  const prompt=e=>{e.preventDefault();setInstall(e)};
+  window.addEventListener('online',net);
+  window.addEventListener('offline',net);
+  window.addEventListener('beforeinstallprompt',prompt);
+  return()=>{
+   alive=false;
+   window.removeEventListener('online',net);
+   window.removeEventListener('offline',net);
+   window.removeEventListener('beforeinstallprompt',prompt);
+  };
+ },[]);
+
+ const m=d.markets.find(x=>x.id===marketId);
+ const sales=m?d.sales.filter(s=>s.marketId===m.id).sort((a,b)=>b.date.localeCompare(a.date)):[];
+ const trip=d.trips.find(t=>!t.closed);
+ const sold=(t,k,exclude)=>d.sales.filter(s=>s.tripId===t.id&&s.id!==exclude).reduce((a,s)=>a+Number(s['qty'+k]||0),0);
+ const left=(t,k,exclude)=>Number(t['qty'+k]||0)-sold(t,k,exclude);
+
+ const openCity=(name,c)=>{
+  setCity(name);
+  setList(false);
+  setCenter(c||[-24.7,-51.6]);
+ };
+
+ const markets=d.markets.filter(x=>
+  (!city||norm(x.city)===norm(city))&&
+  (!search||norm(x.name+' '+x.city).includes(norm(search)))
+ );
+
+ const openSale=s=>setModal({
+  kind:'sale',
+  initial:s||{
+   date:today(),qty1000:0,qty500:0,qty200:0,
+   qtyBear250:0,total:'',invoiceName:''
+  }
+ });
+
+ const submit=f=>{
+  if(modal.kind==='market'){
+   if(!f.name?.trim()||!f.city?.trim()||f.lat===''||f.lng===''||
+    !Number.isFinite(Number(f.lat))||!Number.isFinite(Number(f.lng))||
+    Math.abs(Number(f.lat))>90||Math.abs(Number(f.lng))>180){
+    alert('Confira nome, cidade, latitude e longitude.');
+    return;
+   }
+   const n={
+    ...f,id:f.id||id(),name:f.name.trim(),city:f.city.trim(),
+    lat:Number(f.lat),lng:Number(f.lng),active:f.active!==false
+   };
+   if(save({
+    ...d,
+    markets:f.id?d.markets.map(x=>x.id===f.id?n:x):[...d.markets,n]
+   }))setModal(null);
+   return;
+  }
+
+  if(modal.kind==='sale'||modal.kind==='trip'){
+   for(const [k] of products){
+    f['qty'+k]=Number(f['qty'+k]||0);
+    if(!Number.isSafeInteger(f['qty'+k])||f['qty'+k]<0){
+     alert('Use quantidades inteiras, iguais ou maiores que zero.');
+     return;
+    }
+   }
+   if(!products.some(([k])=>f['qty'+k]>0)||!f.date){
+    alert('Preencha a data e ao menos um produto.');
+    return;
+   }
+   if(modal.kind==='trip'){
+    if(trip||!f.city?.trim()){
+     alert('Informe a cidade e encerre a carga anterior antes de iniciar outra.');
+     return;
+    }
+    if(save({
+     ...d,trips:[...d.trips,{...f,city:f.city.trim(),id:id()}]
+    }))setModal(null);
+    return;
+   }
+
+   const total=Number(String(f.total||0).replace(',','.'));
+   if(!Number.isFinite(total)||total<0){
+    alert('Confira o valor total.');
+    return;
+   }
+   const associated=f.id
+    ?d.trips.find(t=>t.id===f.tripId)
+    :trip&&norm(trip.city)===norm(m.city)?trip:null;
+
+   if(associated&&products.some(([k])=>f['qty'+k]>left(associated,k,f.id))){
+    alert('Venda maior que o estoque disponível.');
+    return;
+   }
+
+   const sale={
+    ...f,total,id:f.id||id(),marketId:m.id,
+    tripId:associated?.id||null,
+    qty:products.reduce((a,[k])=>a+f['qty'+k],0)
+   };
+   if(save({
+    ...d,
+    markets:d.markets.map(x=>x.id===m.id?{...x,active:true}:x),
+    sales:f.id?d.sales.map(s=>s.id===f.id?sale:s):[...d.sales,sale]
+   }))setModal(null);
+   return;
+  }
+
+  if(modal.kind==='invoice'&&f.saleId&&f.invoiceName?.trim()){
+   if(save({
+    ...d,sales:d.sales.map(s=>s.id===f.saleId
+     ?{...s,invoiceName:f.invoiceName.trim()}:s)
+   }))setModal(null);
+  }
+ };
+
+ const addPhotos=async files=>{
+  if(photoLock.current||!ready)return;
+  const selected=Array.from(files);
+  if(selected.length+photos.length>10){
+   alert('Escolha no máximo '+(10-photos.length)+' fotos.');
+   return;
+  }
+  photoLock.current=true;
+  setBusy(true);
+  try{
+   const added=[];
+   for(const file of selected){
+    added.push({
+     id:id(),name:file.name,data:await compress(file),createdAt:Date.now()
+    });
+   }
+   await photosDb('readwrite',s=>{
+    for(const p of added)s.put(p);
+    return s.count();
+   });
+   setPhotos(p=>[...p,...added]);
+  }catch{
+   alert('Não foi possível salvar. Tente uma foto JPG ou PNG e confira o espaço livre.');
+  }finally{
+   photoLock.current=false;
+   setBusy(false);
+  }
+ };
+
+ const removePhoto=async p=>{
+  if(!confirm('Excluir esta foto?'))return;
+  try{
+   await photosDb('readwrite',s=>s.delete(p.id));
+   setPhotos(a=>a.filter(x=>x.id!==p.id));
+   setViewer(null);
+  }catch{
+   alert('Não foi possível excluir a foto.');
+  }
+ };
+
+ const fiscal=async()=>{
+  try{
+   await navigator.clipboard.writeText(
+    ${m.name}\nCNPJ: ${m.cnpj||''}\nInscrição Estadual: ${m.ie||''}\nEndereço: ${m.address||''}
+   );
+   alert('Dados copiados');
+  }catch{
+   alert('Não foi possível copiar automaticamente.');
+  }
+ };
+
+ const cards=arr=>arr.map(x=>
+  <article className="dcard" key={x.id}>
+   <button className="drow" onClick={()=>setMarket(x.id)}>
+    <span style={{color:color(x,d.sales)}}>●</span>
+    <div>
+     <b>{x.name}</b>
+     <small>{x.city} • {x.active===false?'Inativo':date(last(x,d.sales)?.date)}</small>
+     {d.visits[x.id]===today()&&<small>✓ Visitado hoje</small>}
+    </div>
+    <b>›</b>
+   </button>
+   {wa(x.phone)&&
+    <a className="dwa" href={wa(x.phone)} target="_blank" rel="noreferrer">
+     WhatsApp
+    </a>}
+  </article>
+ );
+
+ const tabs=[
+  ['map','Mapa'],['clients','Clientes'],['rank','Ranking'],
+  ['notes','Notas'],['stock','Estoque'],['photos','Fotos']
+ ];
+
+ return <div className="d12">
+  <style>{css}</style>
+  <header>
+   {m
+    ?<button onClick={()=>setMarket(null)}>← Voltar</button>
+    :<img src={import.meta.env.BASE_URL+'logo-d12.png'} alt="D12"/>}
+   <div>
+    <h1>{m?m.name:'Vendas D12'}</h1>
+    <small>{m?m.city:online?'Online':'Offline'}</small>
+   </div>
+   {install&&<button onClick={async()=>{
+    await install.prompt();setInstall(null);
+   }}>Instalar</button>}
+  </header>
+
+  <main>
+  {m?<>
+   <section className="dcard">
+    <b style={{color:color(m,d.sales)}}>
+     {m.active===false?'Cliente inativo':'Cliente ativo'}
+    </b>
+    <p>Última venda: {date(sales[0]?.date)}</p>
+    {sales[0]&&<p>{items(sales[0])}</p>}
+   </section>
+
+   <div className="dactions">
+    <button onClick={()=>openSale()}>＋ Nova venda</button>
+    <button onClick={()=>save({...d,visits:{...d.visits,[m.id]:today()}})}>
+     {d.visits[m.id]===today()?'✓ Visitado hoje':'Marcar visita'}
+    </button>
+    <button onClick={()=>setModal({
+     kind:'invoice',initial:{saleId:sales[0]?.id||'',invoiceName:''}
+    })}>Arquivar nota</button>
+    <a href={https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}}
+     target="_blank" rel="noreferrer">Como chegar</a>
+   </div>
+
+   <section className="dcard">
+    <h2>Histórico de vendas</h2>
+    {!sales.length&&<p>Sem vendas registradas.</p>}
+    {sales.map(s=><article className="dsale" key={s.id}>
+     <b>{date(s.date)} — {money(s.total)}</b>
+     <p>{items(s)}</p>
+     {s.invoiceName&&<p>Nota: {s.invoiceName}</p>}
+     <button onClick={()=>openSale(s)}>Editar venda</button>{' '}
+     <button onClick={()=>{
+      if(confirm('Excluir a venda e devolver os produtos à carga vinculada?')){
+       save({...d,sales:d.sales.filter(x=>x.id!==s.id)});
+      }
+     }}>Excluir</button>
+    </article>)}
+   </section>
+
+   <section className="dcard">
+    <h2>Dados do mercado</h2>
+    {[
+     ['CNPJ',m.cnpj],['Inscrição Estadual',m.ie],
+     ['Endereço',m.address],['Telefone',m.phone]
+    ].map(([label,v])=><p key={label}>{label}: {v||'—'}</p>)}
+    {wa(m.phone)&&
+     <a className="dwa" href={wa(m.phone)} target="_blank" rel="noreferrer">
+      Abrir WhatsApp
+     </a>}
+    <p><button onClick={fiscal}>Copiar dados fiscais</button></p>
+    <button onClick={()=>setModal({kind:'market',initial:m})}>
+     Editar cadastro
+    </button>{' '}
+    <button onClick={()=>save({
+     ...d,markets:d.markets.map(x=>x.id===m.id
+      ?{...x,active:x.active===false}:x)
+    })}>{m.active===false?'Ativar cliente':'Inativar cliente'}</button>
+   </section>
+
+   <button onClick={()=>{
+    if(confirm('Excluir este mercado e todas as suas vendas? As quantidades voltarão às cargas vinculadas.')){
+     if(save({
+      ...d,markets:d.markets.filter(x=>x.id!==m.id),
+      sales:d.sales.filter(s=>s.marketId!==m.id)
+     }))setMarket(null);
+    }
+   }}>Excluir mercado</button>
+  </>:<>
+
+   {(tab==='map'||tab==='clients')&&<>
+    <h2>{tab==='map'?city||'Paraná':'Clientes'}</h2>
+    <button onClick={()=>setModal({
+     kind:'market',
+     initial:{name:'',city,lat:'',lng:'',active:false,phone:''}
+    })}>＋ Cadastrar mercado</button>
+   </>}
+
+   {tab==='map'&&<>
+    {city?<>
+     <div className="dactions">
+      <button onClick={()=>setCity('')}>← Paraná</button>
+      <button onClick={()=>setList(!list)}>
+       {list?'Ver mapa':'Lista de mercados'}
+      </button>
+     </div>
+     <p>🟢 Até 30 dias • 🔴 Mais de 30 dias • 🟡 Inativo</p>
+     {list?cards(markets):
+      <MapContainer key={city}
+       center={markets[0]?[markets[0].lat,markets[0].lng]:center}
+       zoom={12} className="dmap">
+       <TileLayer attribution="© OpenStreetMap"
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+       {markets.map(x=><Marker key={x.id} position={[x.lat,x.lng]}
+        icon={L.divIcon({
+         className:'',
+         html:<div style="background:${color(x,d.sales)};width:26px;height:26px;border:3px solid white;border-radius:50%;box-shadow:0 2px 5px #222"></div>,
+         iconSize:[26,26],iconAnchor:[13,13]
+        })}
+        eventHandlers={{click:()=>setMarket(x.id)}}/>)}
+      </MapContainer>}
+     {!markets.length&&<p>Nenhum mercado cadastrado nesta cidade.</p>}
+    </>:<>
+     <p>Cinza: sem cliente ativo. Laranja: com cliente ativo.</p>
+     {geo?
+      <MapContainer key="estado" center={[-24.7,-51.6]} zoom={7}
+       className="dmap" dragging={false} zoomControl={false}
+       scrollWheelZoom={false} doubleClickZoom={false}
+       touchZoom={false} attributionControl={false}>
+       <Fit geo={geo}/>
+       <GeoJSON key={d.markets.map(x=>x.id+x.city+x.active).join()}
+        data={geo}
+        style={f=>({
+         color:'#777',weight:.6,fillOpacity:1,
+         fillColor:d.markets.some(x=>
+          x.active!==false&&norm(x.city)===norm(cityName(f))
+         )?'#f2a41d':'#353535'
+        })}
+        onEachFeature={(f,l)=>{
+         const n=cityName(f);
+         l.bindTooltip(n);
+         l.on('click',()=>{
+          const c=l.getBounds().getCenter();
+          openCity(n,[c.lat,c.lng]);
+         });
+        }}/>
+      </MapContainer>:
+      <p>{geoError
+       ?'Não foi possível carregar o desenho. Confira a conexão ou use a lista abaixo.'
+       :'Carregando desenho do Paraná…'}</p>}
+     {Array.from(new Set(d.markets.map(x=>x.city))).sort().map(n=>
+      <button key={n} onClick={()=>openCity(n)}>{n}</button>
+     )}
+    </>}
+   </>}
+
+   {tab==='clients'&&<>
+    <input placeholder="Buscar mercado ou cidade" value={search}
+     onChange={e=>setSearch(e.target.value)}/>
+    {cards(d.markets.filter(x=>
+     norm(x.name+' '+x.city).includes(norm(search))
+    ))}
+   </>}
+
+   {tab==='rank'&&<>
+    <h2>Top 10 clientes</h2>
+    {d.markets.map(x=>({
+     ...x,total:d.sales.filter(s=>s.marketId===x.id)
+      .reduce((a,s)=>a+Number(s.total||0),0)
+    })).sort((a,b)=>b.total-a.total).slice(0,10).map((x,i)=>
+     <button className="drow dcard" key={x.id}
+      onClick={()=>setMarket(x.id)}>
+      {i+1}º — {x.name} — {money(x.total)}
+     </button>
+    )}
+   </>}
+
+   {tab==='notes'&&<>
+    <h2>Notas fiscais</h2>
+    <p>Identificações das notas vinculadas às vendas.</p>
+    {d.sales.filter(s=>s.invoiceName).map(s=>
+     <button className="drow dcard" key={s.id}
+      onClick={()=>setMarket(s.marketId)}>
+      {s.invoiceName} • {date(s.date)} • {d.markets.find(x=>x.id===s.marketId)?.name}
+     </button>
+    )}
+   </>}
+
+   {tab==='stock'&&<>
+    <h2>Estoque à pronta entrega</h2>
+    <p>Inicie uma carga. As novas vendas na mesma cidade descontam os produtos automaticamente.</p>
+    {trip?
+     <section className="dcard">
+      <h3>{trip.city} • {date(trip.date)}</h3>
+      <div className="dgrid">
+       {products.map(([k,n])=>
+        <div className="dcard" key={k}>
+         <b>{n}</b>
+         <h2 style={{color:left(trip,k)<=5?'#ff7373':'#53d995'}}>
+          {left(trip,k)} disponíveis
+         </h2>
+         <small>Levados: {trip['qty'+k]||0} • Vendidos: {sold(trip,k)}</small>
+        </div>
+       )}
+      </div>
+      <button onClick={()=>{
+       if(confirm('Encerrar esta viagem?')){
+        save({...d,trips:d.trips.map(t=>t.id===trip.id
+         ?{...t,closed:today()}:t)});
+       }
+      }}>Encerrar viagem</button>
+     </section>:
+     <button onClick={()=>setModal({
+      kind:'trip',initial:{city,date:today()}
+     })}>＋ Iniciar carga</button>}
+    {d.trips.filter(t=>t.closed).slice().reverse().map(t=>
+     <section className="dcard" key={t.id}>
+      <h3>{t.city} — encerrada em {date(t.closed)}</h3>
+      {products.map(([k,n])=>
+       <p key={k}>{n}: {t['qty'+k]||0} levados / {sold(t,k)} vendidos / {left(t,k)} restantes</p>
+      )}
+     </section>
+    )}
+   </>}
+
+   {tab==='photos'&&<>
+    <h2>Fotos dos produtos — {photos.length}/10</h2>
+    <p>Toque na imagem para mostrar ao cliente. As fotos ficam neste aparelho, disponíveis offline.</p>
+    <label>Adicionar fotos
+     <input disabled={!ready||busy||photos.length>=10}
+      type="file" accept="image/*" multiple
+      onChange={e=>{addPhotos(e.target.files);e.target.value=''}}/>
+    </label>
+    {busy&&<p>Salvando fotos…</p>}
+    <div className="dgrid">
+     {photos.map(p=>
+      <button key={p.id} onClick={()=>setViewer(p)}>
+       <img className="dphoto" src={p.data} alt={p.name}/>
+      </button>
+     )}
+    </div>
+   </>}
+  </>}
+  </main>
+
+  <nav>
+   {tabs.map(([key,label])=>
+    <button key={key} style={{color:tab===key?'#ff895d':'#bbb'}}
+     onClick={()=>{setTab(key);setMarket(null);setSearch('')}}>
+     {label}
+    </button>
+   )}
+  </nav>
+
+  {modal&&<Form key={modal.kind+(modal.initial?.id||'')}
+   modal={modal} onClose={()=>setModal(null)}
+   onSave={submit} sales={sales}
+   stockHint={trip&&m&&norm(trip.city)===norm(m.city)
+    ?'Carga ativa: '+products.map(([k,n])=>${left(trip,k)} ${n}).join(' • ')
+    :'Sem carga ativa para esta cidade. A venda será registrada sem descontar estoque.'}/>}
+
+  {viewer&&<div className="dviewer">
+   <button onClick={()=>setViewer(null)}>✕ Fechar</button>
+   <img src={viewer.data} alt={viewer.name}/>
+   <button onClick={()=>removePhoto(viewer)}>Excluir foto</button>
+  </div>}
+ </div>;
+}
+
+function Form({modal,onClose,onSave,sales,stockHint}){
+ const [f,setF]=useState({...modal.initial});
+ const [locating,setLocating]=useState(false);
+ const set=(k,v)=>setF(a=>({...a,[k]:v}));
+ const input=(k,label,type='text')=>
+  <label key={k}>{label}
+   <input type={type} step={type==='number'?'any':undefined}
+    value={f[k]??''} onChange={e=>set(k,e.target.value)}/>
+  </label>;
+ const kind=modal.kind;
+
+ const locate=()=>{
+  if(!navigator.geolocation){
+   alert('Localização indisponível.');
+   return;
+  }
+  setLocating(true);
+  navigator.geolocation.getCurrentPosition(p=>{
+   setF(a=>({
+    ...a,lat:p.coords.latitude.toFixed(6),lng:p.coords.longitude.toFixed(6)
+   }));
+   setLocating(false);
+  },()=>{
+   setLocating(false);
+   alert('Não foi possível obter sua localização.');
+  },{timeout:15000});
+ };
+
+ return <div className="doverlay">
+  <section className="dmodal">
+   <button onClick={onClose}>✕ Fechar</button>
+   <h2>{kind==='market'?'Cadastro do mercado':kind==='sale'
+    ?'Registrar venda':kind==='trip'?'Nova carga':'Vincular nota'}</h2>
+   <form onSubmit={e=>{e.preventDefault();onSave({...f})}}>
+    {kind==='market'&&<>
+     {input('name','Nome do mercado')}
+     {input('city','Cidade')}
+     <label>Situação
+      <select value={f.active===false?'no':'yes'}
+       onChange={e=>set('active',e.target.value==='yes')}>
+       <option value="yes">Cliente ativo</option>
+       <option value="no">Cadastrado / inativo</option>
+      </select>
+     </label>
+     <div className="dgrid">
+      {input('lat','Latitude','number')}
+      {input('lng','Longitude','number')}
+     </div>
+     <button type="button" disabled={locating} onClick={locate}>
+      {locating?'Obtendo localização…':'Usar localização atual'}
+     </button>
+     {input('cnpj','CNPJ')}
+     {input('ie','Inscrição Estadual')}
+     {input('address','Endereço')}
+     {input('phone','Telefone com DDD','tel')}
+    </>}
+
+    {(kind==='sale'||kind==='trip')&&<>
+     {kind==='trip'?input('city','Cidade da viagem'):
+      <p>{f.id?'Ao editar, o saldo da carga vinculada será recalculado.':stockHint}</p>}
+     {input('date','Data','date')}
+     <div className="dgrid">
+      {products.map(([k,n])=>input('qty'+k,n,'number'))}
+     </div>
+     {kind==='sale'&&<>
+      {input('total','Valor total em reais')}
+      {input('invoiceName','Identificação da nota (opcional)')}
+     </>}
+    </>}
+
+    {kind==='invoice'&&<>
+     <label>Venda
+      <select value={f.saleId||''} onChange={e=>set('saleId',e.target.value)}>
+       <option value="">Selecione</option>
+       {sales.map(s=>
+        <option key={s.id} value={s.id}>{date(s.date)} — {money(s.total)}</option>
+       )}
+      </select>
+     </label>
+     {input('invoiceName','Identificação da nota')}
+     <p>Este campo guarda o nome ou número da nota. Não anexa o PDF.</p>
+    </>}
+
+    <button className="dsave" type="submit">Salvar</button>
+   </form>
+  </section>
+ </div>;
+}
+
+const css=`
+.d12{background:#101010;color:#eee;min-height:100vh;font:15px system-ui;padding-bottom:90px}
+.d12 *{box-sizing:border-box}
+.d12 header{display:flex;gap:12px;align-items:center;padding:12px;height:auto;min-height:70px}
+.d12 header img{width:48px}
+.d12 h1{font-size:20px;margin:0}
+.d12 h2{font-size:20px}
+.d12 main{max-width:950px;margin:auto;padding:14px}
+.d12 button,.d12 a{cursor:pointer;color:#eee;background:#242424;border:1px solid #454545;border-radius:10px;padding:11px;text-decoration:none}
+.d12 button:disabled{opacity:.4}
+.d12 input,.d12 select{width:100%;padding:12px;border:1px solid #555;border-radius:9px;background:#202020;color:#fff;font:inherit;margin:6px 0 12px}
+.d12 label{display:block}
+.d12 small{display:block;color:#bbb}
+.dcard{background:#181818;border:1px solid #393939;border-radius:14px;padding:13px;margin:12px 0}
+.drow{display:flex!important;width:100%;gap:12px;align-items:center;text-align:left}
+.drow>div{flex:1}
+.dwa{display:block;text-align:center;background:#143826!important;color:#7becad!important;margin-top:8px}
+.dactions,.dgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.dactions a{text-align:center}
+.dmap{height:55vh;min-height:330px;background:#141414;border-radius:12px;z-index:1}
+.dsale{border-top:1px solid #444;padding:12px 0}
+.dsale p{font-size:13px}
+.d12 nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#111;z-index:1000;height:72px;padding:4px}
+.d12 nav button{flex:1;padding:3px;border:0;background:none;border-radius:0;font-size:11px;min-width:0}
+.doverlay{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:2000;padding:10px}
+.dmodal{background:#141414;width:100%;max-width:620px;max-height:92vh;overflow:auto;padding:18px;border:1px solid #555;border-radius:18px}
+.dsave{width:100%;background:#bb421b!important;margin-top:12px}
+.dphoto{width:100%;height:180px;object-fit:cover}
+.dviewer{position:fixed;inset:0;background:black;z-index:3000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;gap:12px}
+.dviewer img{max-height:78vh;max-width:100%;object-fit:contain}
+`;
+
 createRoot(document.getElementById('root')).render(<App/>);
