@@ -22,7 +22,7 @@ const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'B
 const date=s=>s?s.split('-').reverse().join('/'):'Sem venda';
 const last=(m,s)=>s.filter(x=>x.marketId===m.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
 const color=(m,s)=>m.active===false?'#e8bc32':last(m,s)&&Math.round((new Date(today()+'T12:00:00')-new Date(last(m,s).date+'T12:00:00'))/86400000)<=30?'#24b96f':'#ed5555';
-const items=s=>s.qty500==null?${s.qty||0} unidades:products.map(([k,n])=>${s['qty'+k]||0} × ${n}).join(' • ');
+const items=s=>s.qty500==null?(s.qty||0)+' unidades':products.map(([k,n])=>(s['qty'+k]||0)+' x '+n).join(' • ');
 const wa=p=>{
  let n=String(p||'').replace(/\D/g,'');
  if(n.length===10||n.length===11)n='55'+n;
